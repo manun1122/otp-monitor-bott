@@ -327,8 +327,9 @@ class OTPMonitorBot:
                 await asyncio.sleep(1)
 
 async def main():
-    TELEGRAM_BOT_TOKEN = "8590402708:AAFtLuEcShBvMEoK2SdceRjO9Rn4817-nX0"
-    GROUP_CHAT_ID = "-1003701215218"
+    # ✅ Updated bot token and group chat ID
+    TELEGRAM_BOT_TOKEN = "5929619535:AAGsgoN5pYczsKWOGqVWTrslk0qJr2jJVYA"
+    GROUP_CHAT_ID = "-1001153782407"
     SESSION_COOKIE = "2ee79638efa71976136d4ebc3ca344f7"
     TARGET_HOST = "15.235.182.3"
     TARGET_URL = f"http://{TARGET_HOST}/konekta/client/res/data_smscdr.php"
