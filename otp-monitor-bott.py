@@ -46,10 +46,10 @@ TARGET_URL = os.getenv(
     "TARGET_URL",
     "http://217.182.195.194/ints/agent/res/data_smscdr.php"
 )
-# আপডেটেড নাম্বার বটের লিংক
+# নাম্বার বটের লিংক (আপডেটেড)
 NUMBER_BOT_URL = os.getenv(
     "NUMBER_BOT_URL",
-    "https://t.me/Updateotpnew_bot"   # ✅ আপনার নাম্বার বটের লিংক (এখন @Updateotpnew_bot)
+    "https://t.me/Updateotpnew_bot"
 )
 # =================================================================
 
@@ -199,7 +199,8 @@ class OTPMonitorBot:
         keyboard = [
             [InlineKeyboardButton("👨‍💻 ডেভেলপার", url="https://t.me/rana1132")],
             [InlineKeyboardButton("📢 চ্যানেল", url="https://t.me/GivE_AwaY2_0")],
-            [InlineKeyboardButton("🤖 Number Bot", url=NUMBER_BOT_URL)],  # আপডেটেড বাটন
+            [InlineKeyboardButton("📢 আপডেট চ্যানেল", url="https://t.me/updaterange")],  # নতুন চ্যানেল
+            [InlineKeyboardButton("🤖 Number Bot", url=NUMBER_BOT_URL)],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await self.send_telegram_message(startup_msg, reply_markup=reply_markup)
@@ -209,12 +210,12 @@ class OTPMonitorBot:
     def create_response_buttons():
         """OTP মেসেজের সাথে ইনলাইন বাটন তৈরি করো"""
         keyboard = [
-            [InlineKeyboardButton("📱 নাম্বার চ্যানেল", url="https://t.me/your_channel")],
+            [InlineKeyboardButton("📢 আপডেট চ্যানেল", url="https://t.me/updaterange")],  # নতুন চ্যানেল
             [
                 InlineKeyboardButton("👨‍💻 ডেভেলপার", url="https://t.me/rana1132"),
                 InlineKeyboardButton("📢 চ্যানেল", url="https://t.me/GivE_AwaY2_0"),
             ],
-            [InlineKeyboardButton("🤖 Number Bot", url=NUMBER_BOT_URL)],  # আপডেটেড বাটন
+            [InlineKeyboardButton("🤖 Number Bot", url=NUMBER_BOT_URL)],
         ]
         return InlineKeyboardMarkup(keyboard)
 
