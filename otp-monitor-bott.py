@@ -51,7 +51,7 @@ TARGET_URL = os.getenv(
 # ========== বাটনের জন্য URL কনফিগারেশন ==========
 NUMBER_BOT_URL = os.getenv(
     "NUMBER_BOT_URL",
-    "https://t.me/your_number_bot"  # ✅ আপনার নাম্বার বটের লিংক দিন
+    "https://t.me/Updateotpnew_bot"   # ✅ আপনার নাম্বার বটের লিংক (আপডেট করা)
 )
 # =================================================================
 
