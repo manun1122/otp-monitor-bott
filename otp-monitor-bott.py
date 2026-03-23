@@ -29,30 +29,27 @@ except ImportError:
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
 
-# ========== কনফিগারেশন – নতুন তথ্য দিয়ে আপডেট করা হয়েছে ==========
+# ========== কনফিগারেশন – আপনার তথ্য দিয়ে পূরণ করা আছে ==========
 TELEGRAM_BOT_TOKEN = os.getenv(
     "TELEGRAM_BOT_TOKEN",
-    "5929619535:AAGsgoN5pYczsKWOGqVWTrslk0qJr2jJVYA"   # ✅ আপনার বট টোকেন (পূর্বের মত)
+    "5929619535:AAGsgoN5pYczsKWOGqVWTrslk0qJr2jJVYA"
 )
 GROUP_CHAT_ID = os.getenv(
     "GROUP_CHAT_ID",
-    "-1001153782407"   # ✅ আপনার গ্রুপের সঠিক সুপারগ্রুপ আইডি (পূর্বের মত)
+    "-1001153782407"
 )
-# আপডেটেড সেশন কুকি (নতুন PHPSESSID)
 SESSION_COOKIE = os.getenv(
     "SESSION_COOKIE",
-    "fe051e95e27f6b0978e07201fdaeede1"   # ✅ নতুন কুকি
+    "fe051e95e27f6b0978e07201fdaeede1"
 )
-# আপডেটেড টার্গেট URL (নতুন হোস্ট ও পাথ)
 TARGET_URL = os.getenv(
     "TARGET_URL",
-    "http://217.182.195.194/ints/agent/res/data_smscdr.php"  # ✅ নতুন URL
+    "http://217.182.195.194/ints/agent/res/data_smscdr.php"
 )
-
-# ========== বাটনের জন্য URL কনফিগারেশন ==========
+# আপডেটেড নাম্বার বটের লিংক
 NUMBER_BOT_URL = os.getenv(
     "NUMBER_BOT_URL",
-    "https://t.me/your_number_bot"  # ✅ আপনার নাম্বার বটের লিংক (পূর্বের মত)
+    "https://t.me/Updateotpnew_bot"   # ✅ আপনার নাম্বার বটের লিংক (এখন @Updateotpnew_bot)
 )
 # =================================================================
 
@@ -202,7 +199,7 @@ class OTPMonitorBot:
         keyboard = [
             [InlineKeyboardButton("👨‍💻 ডেভেলপার", url="https://t.me/rana1132")],
             [InlineKeyboardButton("📢 চ্যানেল", url="https://t.me/GivE_AwaY2_0")],
-            [InlineKeyboardButton("🤖 Number Bot", url=NUMBER_BOT_URL)],
+            [InlineKeyboardButton("🤖 Number Bot", url=NUMBER_BOT_URL)],  # আপডেটেড বাটন
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await self.send_telegram_message(startup_msg, reply_markup=reply_markup)
@@ -217,7 +214,7 @@ class OTPMonitorBot:
                 InlineKeyboardButton("👨‍💻 ডেভেলপার", url="https://t.me/rana1132"),
                 InlineKeyboardButton("📢 চ্যানেল", url="https://t.me/GivE_AwaY2_0"),
             ],
-            [InlineKeyboardButton("🤖 Number Bot", url=NUMBER_BOT_URL)],
+            [InlineKeyboardButton("🤖 Number Bot", url=NUMBER_BOT_URL)],  # আপডেটেড বাটন
         ]
         return InlineKeyboardMarkup(keyboard)
 
@@ -259,19 +256,17 @@ class OTPMonitorBot:
     # ---------- API থেকে SMS ডেটা ফেচ (aiohttp/requests অটো সিলেক্ট) ----------
     async def fetch_sms_data(self):
         """টার্গেট API থেকে SMS ডেটা নিয়ে আসো"""
-        # আপডেটেড হেডার (নতুন Referer ও User-Agent)
         headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36",
             "Accept": "application/json, text/javascript, */*; q=0.01",
             "Accept-Language": "en-AZ,en;q=0.9,it-SI;q=0.8,it;q=0.7,es-BO;q=0.6,es;q=0.5,ar-IL;q=0.4,ar;q=0.3,en-GB;q=0.2,en-US;q=0.1",
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": "http://217.182.195.194/ints/agent/SMSCDRStats",  # নতুন Referer
+            "Referer": "http://217.182.195.194/ints/agent/SMSCDRStats",
             "Cookie": f"PHPSESSID={self.session_cookie}",
             "Connection": "keep-alive",
             "DNT": "1",
         }
         current_date = time.strftime("%Y-%m-%d")
-        # আপডেটেড প্যারামিটার (sesskey পরিবর্তন)
         params = {
             "fdate1": f"{current_date} 00:00:00",
             "fdate2": f"{current_date} 23:59:59",
@@ -286,7 +281,7 @@ class OTPMonitorBot:
             "fgnumber": "",
             "fgcli": "",
             "fg": "0",
-            "sesskey": "Q05RR0FRUURCUA==",  # নতুন sesskey
+            "sesskey": "Q05RR0FRUURCUA==",
             "sEcho": "1",
             "iColumns": "9",
             "sColumns": ",,,,,,,,",
