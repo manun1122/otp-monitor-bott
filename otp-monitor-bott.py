@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-OTP মনিটর বট – শুধু প্রথম OTP ফরওয়ার্ড করে
+OTP মনিটর বট – শুধু প্রথম OTP ফরওয়ার্ড করে (ইম্প্রুভড ভার্সন)
 ----------------------------------------
 - কোন OTP একবার পাঠালে আর পাঠায় না (২৪ ঘণ্টা মেমোরি)
 - aiohttp না থাকলে requests ব্যবহার করবে (যেকোনো পরিবেশে চলে)
 - ০.৫ সেকেন্ড পর পর API চেক করে
 - এরর লগ ও রিট্রাই সহ
-- দেশের ফ্ল্যাগ সহ ফরম্যাট (ছবির মতো)
+- দেশের ফ্ল্যাগ সহ ফরম্যাট
 """
 
 import asyncio
@@ -30,27 +30,12 @@ except ImportError:
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
 
-# ========== কনফিগারেশন – আপনার তথ্য দিয়ে পূরণ করা আছে ==========
-TELEGRAM_BOT_TOKEN = os.getenv(
-    "TELEGRAM_BOT_TOKEN",
-    "5929619535:AAGsgoN5pYczsKWOGqVWTrslk0qJr2jJVYA"
-)
-GROUP_CHAT_ID = os.getenv(
-    "GROUP_CHAT_ID",
-    "-1001153782407"
-)
-SESSION_COOKIE = os.getenv(
-    "SESSION_COOKIE",
-    "fe051e95e27f6b0978e07201fdaeede1"
-)
-TARGET_URL = os.getenv(
-    "TARGET_URL",
-    "http://217.182.195.194/ints/agent/res/data_smscdr.php"
-)
-NUMBER_BOT_URL = os.getenv(
-    "NUMBER_BOT_URL",
-    "https://t.me/Updateotpnew_bot"
-)
+# ========== কনফিগারেশন – আপনার তথ্য দিয়ে আপডেট করা হয়েছে ==========
+TELEGRAM_BOT_TOKEN = "8362446113:AAGsrg9iZmeByXmFbig2vdKfmDBUpgppIDM"
+GROUP_CHAT_ID = "-1001153782407"
+SESSION_COOKIE = "7icmm26nqgluje0f2q2km7cjqt"
+TARGET_URL = "https://imssms.org/client/res/data_smscdr.php"
+NUMBER_BOT_URL = "https://t.me/Updateotpnew_bot"
 # =================================================================
 
 # লগিং সেটআপ
@@ -152,7 +137,7 @@ class OTPMonitorBot:
             "Venezuela": "🇻🇪",
             "Algeria": "🇩🇿",
             "Honduras": "🇭🇳",
-            "Saudi": "🇸🇦",          # Saudi Arabia এর জন্য শর্ট
+            "Saudi": "🇸🇦",
             "Saudi Arabia": "🇸🇦",
             "Pakistan": "🇵🇰",
             "Bangladesh": "🇧🇩",
@@ -215,10 +200,8 @@ class OTPMonitorBot:
             "New Zealand": "🇳🇿",
             "Canada": "🇨🇦",
         }
-        # পুরো নাম দিয়ে খুঁজি
         if country_name in flags:
             return flags[country_name]
-        # যদি না পাই, প্রথম শব্দ দিয়ে চেষ্টা
         first_word = country_name.split()[0]
         for full_name, flag in flags.items():
             if full_name.startswith(first_word):
@@ -256,7 +239,7 @@ class OTPMonitorBot:
             return False
 
     async def send_startup_message(self):
-        """বট চালু হওয়ার বার্তা গ্রুপে পাঠাও (শুধু প্রয়োজনীয় বাটন)"""
+        """বট চালু হওয়ার বার্তা গ্রুপে পাঠাও"""
         startup_msg = f"""
 🚀 **OTP মনিটর বট চালু হয়েছে** 🚀
 ➖➖➖➖➖➖➖➖➖➖➖
@@ -289,7 +272,7 @@ class OTPMonitorBot:
 
     @staticmethod
     def create_response_buttons():
-        """OTP মেসেজের সাথে ইনলাইন বাটন তৈরি করো (ছবির মতো)"""
+        """OTP মেসেজের সাথে ইনলাইন বাটন তৈরি করো"""
         keyboard = [
             [
                 InlineKeyboardButton("👥 Bot Developer", url="https://t.me/rana1132"),
@@ -299,24 +282,22 @@ class OTPMonitorBot:
         return InlineKeyboardMarkup(keyboard)
 
     def format_message(self, sms_data):
-        """SMS ডেটা থেকে টেলিগ্রাম মেসেজ ফরম্যাট করো (ছবির স্টাইলে + ফ্ল্যাগ)"""
+        """SMS ডেটা থেকে টেলিগ্রাম মেসেজ ফরম্যাট করো"""
         if len(sms_data) < 6:
             logger.warning(f"অসম্পূর্ণ SMS ডেটা: {sms_data}")
             return "⚠️ অসম্পূর্ণ SMS ডেটা পাওয়া গেছে"
 
-        # sms_data: [timestamp, operator, phone, platform, ?, message, ...]
         timestamp = sms_data[0] if len(sms_data) > 0 else "N/A"
-        operator = sms_data[1] if len(sms_data) > 1 else "N/A"        # দেশ+অপারেটর
+        operator = sms_data[1] if len(sms_data) > 1 else "N/A"
         phone_number = sms_data[2] if len(sms_data) > 2 else "N/A"
-        platform = sms_data[3] if len(sms_data) > 3 else "N/A"        # সার্ভিস (Samsung, WA, YallaLudo ইত্যাদি)
+        platform = sms_data[3] if len(sms_data) > 3 else "N/A"
         message = sms_data[5] if len(sms_data) > 5 else "N/A"
 
         hidden_phone = self.hide_phone_number(phone_number)
-        country = self.extract_country_name(operator)                 # শুধু দেশের নাম
-        flag = self.get_country_flag(country)                         # ফ্ল্যাগ ইমোজি
+        country = self.extract_country_name(operator)
+        flag = self.get_country_flag(country)
         otp_code = self.extract_otp(message) or "প্রসেসিং..."
 
-        # ছবির মতো ফরম্যাট (টাইমস্ট্যাম্প বাদ, ফ্ল্যাগ+দেশ)
         return f"""
 {flag} {country} #{platform}
 {hidden_phone}
@@ -333,7 +314,7 @@ class OTPMonitorBot:
             "Accept": "application/json, text/javascript, */*; q=0.01",
             "Accept-Language": "en-AZ,en;q=0.9,it-SI;q=0.8,it;q=0.7,es-BO;q=0.6,es;q=0.5,ar-IL;q=0.4,ar;q=0.3,en-GB;q=0.2,en-US;q=0.1",
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": "http://217.182.195.194/ints/agent/SMSCDRStats",
+            "Referer": "https://imssms.org/client/SMSCDRStats",
             "Cookie": f"PHPSESSID={self.session_cookie}",
             "Connection": "keep-alive",
             "DNT": "1",
@@ -343,20 +324,18 @@ class OTPMonitorBot:
             "fdate1": f"{current_date} 00:00:00",
             "fdate2": f"{current_date} 23:59:59",
             "frange": "",
-            "fclient": "",
             "fnum": "",
             "fcli": "",
             "fgdate": "",
             "fgmonth": "",
             "fgrange": "",
-            "fgclient": "",
             "fgnumber": "",
             "fgcli": "",
             "fg": "0",
-            "sesskey": "Q05RR0FRUURCUA==",
+            "sesskey": "Q05RR0FRUUZCVQ==",           # new sesskey from request
             "sEcho": "1",
-            "iColumns": "9",
-            "sColumns": ",,,,,,,,",
+            "iColumns": "7",                         # 7 columns
+            "sColumns": ",,,,,,,",                   # 7 commas
             "iDisplayStart": "0",
             "iDisplayLength": "25",
             "mDataProp_0": "0",
@@ -394,16 +373,6 @@ class OTPMonitorBot:
             "bRegex_6": "false",
             "bSearchable_6": "true",
             "bSortable_6": "true",
-            "mDataProp_7": "7",
-            "sSearch_7": "",
-            "bRegex_7": "false",
-            "bSearchable_7": "true",
-            "bSortable_7": "true",
-            "mDataProp_8": "8",
-            "sSearch_8": "",
-            "bRegex_8": "false",
-            "bSearchable_8": "true",
-            "bSortable_8": "false",
             "sSearch": "",
             "bRegex": "false",
             "iSortCol_0": "0",
@@ -440,7 +409,7 @@ class OTPMonitorBot:
             return None
 
     async def _fetch_requests(self, headers, params):
-        """requests দিয়ে সিঙ্ক ফেচ (থ্রেড পুলে চলে, ব্লক করে না)"""
+        """requests দিয়ে সিঙ্ক ফেচ (থ্রেড পুলে চলে)"""
         def _sync_fetch():
             try:
                 response = requests.get(
@@ -462,7 +431,7 @@ class OTPMonitorBot:
 
     # ---------- মূল মনিটর লুপ ----------
     async def monitor_loop(self):
-        """প্রধান লুপ – প্রতি ০.৫ সেকেন্ডে API চেক করে, প্রথম নতুন OTP পাঠায়"""
+        """প্রধান লুপ – প্রতি ০.৫ সেকেন্ডে API চেক করে, শুধু প্রথম নতুন OTP পাঠায়"""
         logger.info("🚀 OTP মনিটরিং শুরু – শুধু প্রথম OTP (ইউনিক আইডি অনুযায়ী)")
         await self.send_startup_message()
 
@@ -478,9 +447,10 @@ class OTPMonitorBot:
                     retry_delay = 0.5
 
                     sms_list = data["aaData"]
+                    # ফিল্টার: timestamp থাকা (index 0) এবং কমপক্ষে ৬টি উপাদান
                     valid_sms = [
                         sms for sms in sms_list
-                        if len(sms) >= 8 and isinstance(sms[0], str) and ":" in sms[0]
+                        if len(sms) >= 6 and isinstance(sms[0], str) and ":" in sms[0]
                     ]
 
                     if valid_sms:
@@ -525,7 +495,6 @@ class OTPMonitorBot:
                         f"{retry_delay:.1f} সেকেন্ড পর আবার চেষ্টা (ফেইল: {consecutive_failures})"
                     )
 
-                # পরবর্তী চেকের জন্য অপেক্ষা
                 await asyncio.sleep(retry_delay if consecutive_failures > 0 else 0.5)
 
             except asyncio.CancelledError:
