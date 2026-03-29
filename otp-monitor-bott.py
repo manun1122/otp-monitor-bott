@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-OTP Monitor - Full Script (Static Cookie, No Auto-Refresh)
-Updated with proper channel & bot links
+OTP মনিটর বট – শুধু প্রথম OTP ফরওয়ার্ড করে
+----------------------------------------
+- কোন OTP একবার পাঠালে আর পাঠায় না (২৪ ঘণ্টা মেমোরি)
+- aiohttp না থাকলে requests ব্যবহার করবে (যেকোনো পরিবেশে চলে)
+- ০.৫ সেকেন্ড পর পর API চেক করে
+- এরর লগ ও রিট্রাই সহ
 """
 
 import asyncio
@@ -12,7 +16,7 @@ import re
 import time
 from datetime import datetime, timedelta
 
-# HTTP লাইব্রেরি (aiohttp পছন্দনীয়, না থাকলে requests)
+# ---------- aiohttp ইম্পোর্ট করার চেষ্টা (না থাকলে requests) ----------
 try:
     import aiohttp
     HAS_AIOHTTP = True
@@ -20,332 +24,447 @@ except ImportError:
     HAS_AIOHTTP = False
     import requests
     import urllib3
-    urllib3.disable_warnings()
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
 
-# =================== কনফিগারেশন (আপনার তথ্য) ===================
-TELEGRAM_BOT_TOKEN = "5929619535:AAGsgoN5pYczsKWOGqVWTrslk0qJr2jJVYA"
-GROUP_CHAT_ID = "-1001153782407"
-TARGET_URL = "http://147.135.212.148/ints/agent/res/data_smscdr.php"
-SESSKEY = "Q05RR0FRUURCUA=="          # আপনার sesskey
-PHPSESSID = "7f70515fb8926e045e42d5df285e8154"   # আপনার কুকি
-
-# লিংক
-MAIN_CHANNEL = "https://t.me/updaterange"
-NUMBER_BOT = "https://t.me/Updateotpnew_bot"
-DEVELOPER = "https://t.me/rana1132"
-# ====================================================================
-
-# টেম্প ফাইল (Railway তে রিস্টার্টে রিসেট হবে)
-import tempfile
-TEMP_DIR = tempfile.gettempdir()
-PROCESSED_FILE = os.path.join(TEMP_DIR, "sent_otps.json")
+# ========== কনফিগারেশন – আপনার তথ্য দিয়ে পূরণ করা আছে ==========
+# প্রোডাকশনে env variable ব্যবহার করুন (নিচের ফলব্যাক শুধু টেস্টের জন্য)
+TELEGRAM_BOT_TOKEN = os.getenv(
+    "TELEGRAM_BOT_TOKEN",
+    "5929619535:AAGsgoN5pYczsKWOGqVWTrslk0qJr2jJVYA"   # ✅ আপনার বট টোকেন
+)
+GROUP_CHAT_ID = os.getenv(
+    "GROUP_CHAT_ID",
+    "-1001153782407"   # ✅ আপনার গ্রুপের সঠিক সুপারগ্রুপ আইডি
+)
+SESSION_COOKIE = os.getenv(
+    "SESSION_COOKIE",
+    "7f70515fb8926e045e42d5df285e8154"               # ✅ আপডেটেড সেশন কুকি
+)
+TARGET_URL = os.getenv(
+    "TARGET_URL",
+    "http://15.235.182.3/konekta/agent/res/data_smscdr.php"  # ✅ টার্গেট URL
+)
+# =================================================================
 
 # লগিং সেটআপ
 logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
-logger = logging.getLogger("OTPMonitor")
+logger = logging.getLogger(__name__)
 
-# OTP শনাক্ত করার প্যাটার্ন (বাংলা + ইংরেজি)
-OTP_PATTERNS = [
-    r"\b\d{3}-\d{3}\b",          # 123-456
-    r"\b\d{5}\b",                # 12345
-    r"\b\d{6}\b",                # 123456
-    r"\b\d{4}\b",                # 1234
-    r"code\s*:?\s*\d+",         # code 12345
-    r"OTP\s*:?\s*\d+",          # OTP: 123456
-    r"verification code:?\s*\d+",
-    r"Your WhatsApp code \d+-\d+",
-    r"Telegram code \d+",
-    r"কোড\s*\d+",               # কোড ১২৩৪৫৬
-]
-otp_regex = re.compile("|".join(OTP_PATTERNS), re.IGNORECASE)
 
-# =================== হেল্পার ফাংশন ===================
-def extract_otp(message):
-    """মেসেজ থেকে OTP বের করে"""
-    if not message:
-        return None
-    match = otp_regex.search(message)
-    return match.group(0) if match else None
+class OTPMonitorBot:
+    """মূল বট ক্লাস – OTP মনিটর ও টেলিগ্রাম ফরওয়ার্ডার"""
 
-def hide_phone(phone):
-    """ফোন নাম্বার মাঝামাঝি লুকান"""
-    p = str(phone)
-    if len(p) >= 8:
-        return p[:4] + "****" + p[-4:]
-    elif len(p) >= 4:
-        return p[:2] + "***" + p[-2:]
-    return p
+    def __init__(self, telegram_token, group_chat_id, session_cookie, target_url):
+        self.telegram_token = telegram_token
+        self.group_chat_id = group_chat_id
+        self.session_cookie = session_cookie
+        self.target_url = target_url
 
-def get_flag(country):
-    """দেশ অনুযায়ী ফ্লাগ ইমোজি"""
-    flags = {
-        "Bangladesh": "🇧🇩", "India": "🇮🇳", "Pakistan": "🇵🇰",
-        "Saudi": "🇸🇦", "UAE": "🇦🇪", "USA": "🇺🇸", "UK": "🇬🇧",
-        "Turkey": "🇹🇷", "Egypt": "🇪🇬", "Malaysia": "🇲🇾",
-        "Indonesia": "🇮🇩", "Thailand": "🇹🇭", "Vietnam": "🇻🇳",
-        "Philippines": "🇵🇭", "Brazil": "🇧🇷", "Argentina": "🇦🇷",
-        "Mexico": "🇲🇽", "Spain": "🇪🇸", "France": "🇫🇷",
-        "Germany": "🇩🇪", "Italy": "🇮🇹", "Netherlands": "🇳🇱",
-        "Venezuela": "🇻🇪", "Algeria": "🇩🇿", "Honduras": "🇭🇳",
-        "Morocco": "🇲🇦", "Tunisia": "🇹🇳", "Libya": "🇱🇾",
-        "Jordan": "🇯🇴", "Kuwait": "🇰🇼", "Oman": "🇴🇲",
-        "Qatar": "🇶🇦", "Bahrain": "🇧🇭", "Iran": "🇮🇷",
-        "Iraq": "🇮🇶", "Afghanistan": "🇦🇫", "Russia": "🇷🇺",
-        "China": "🇨🇳", "South Africa": "🇿🇦", "Nigeria": "🇳🇬"
-    }
-    for k, v in flags.items():
-        if k in country:
-            return v
-    return "🌍"
+        # আগে পাঠানো OTP গুলো JSON ফাইলে সেভ থাকে (রিস্টার্ট করেও ডুপ্লিকেট রোধ)
+        self.storage_file = "processed_otps.json"
+        self.processed_otps = self._load_processed_otps()
 
-def format_telegram_message(sms):
-    """SMS ডেটা থেকে সুন্দর টেলিগ্রাম মেসেজ তৈরি করে"""
-    if len(sms) < 6:
-        return "⚠️ অকার্যকর SMS ডেটা"
-    
-    timestamp = sms[0] if len(sms) > 0 else "N/A"
-    operator = sms[1] if len(sms) > 1 else "N/A"
-    phone = sms[2] if len(sms) > 2 else "N/A"
-    platform = sms[3] if len(sms) > 3 else "N/A"
-    message = sms[5] if len(sms) > 5 else "N/A"
-    
-    # দেশের নাম বের করা
-    country = operator.split('_')[0] if '_' in operator else operator.split()[0]
-    flag = get_flag(country)
-    hidden_phone = hide_phone(phone)
-    otp_code = extract_otp(message) or "???"
-    
-    # সময় শুধু ঘণ্টা:মিনিট:সেকেন্ড
-    try:
-        time_part = timestamp.split()[1] if ' ' in timestamp else timestamp[:8]
-    except:
-        time_part = timestamp
-    
-    return f"""
-{flag} **{country}** #{platform}
-📱 `{hidden_phone}`
-⏰ `{time_part}`
+        self.total_otps_sent = 0
+        self.last_otp_time = None
+        self.is_monitoring = True
 
-📨 {message}
+        # OTP শনাক্ত করার রেগুলার এক্সপ্রেশন (বাংলা + ইংরেজি)
+        patterns = [
+            r"\b\d{3}-\d{3}\b",          # 123-456
+            r"\b\d{5}\b",                # 5 ডিজিট
+            r"code\s*\d+",              # code 12345
+            r"code:\s*\d+",             # code: 12345
+            r"কোড\s*\d+",               # কোড 12345
+            r"\b\d{6}\b",               # 6 ডিজিট
+            r"\b\d{4}\b",               # 4 ডিজিট
+            r"Your WhatsApp code \d+-\d+",
+            r"WhatsApp code \d+-\d+",
+            r"Telegram code \d+",
+        ]
+        self.otp_regex = re.compile("|".join(patterns), re.IGNORECASE)
 
-🔐 **OTP:** `{otp_code}`
+        # HTTP লাইব্রেরি স্ট্যাটাস
+        if HAS_AIOHTTP:
+            logger.info("✅ aiohttp ব্যবহার করা হচ্ছে (দ্রুত)")
+        else:
+            logger.warning("⚠️ aiohttp ইনস্টল নেই – requests ব্যবহার হবে (ধীর). 'pip install aiohttp' দিন ভালো পারফরম্যান্সের জন্য")
 
-➖➖➖➖➖➖➖➖
-🤖 @OTPMonitorBot
+    # ---------- JSON ফাইল থেকে OTP ID লোড/সেভ ----------
+    def _load_processed_otps(self):
+        """JSON ফাইল থেকে প্রসেসড OTP ID লোড করে, ২৪ ঘণ্টার পুরোনো ডিলিট করে"""
+        try:
+            with open(self.storage_file, "r") as f:
+                data = json.load(f)
+            cutoff = datetime.now() - timedelta(hours=24)
+            valid = {
+                otp_id for otp_id, ts in data.items()
+                if datetime.fromisoformat(ts) > cutoff
+            }
+            logger.info(f"📂 {len(valid)} টি OTP ID লোড করা হয়েছে (গত ২৪ ঘণ্টা)")
+            return valid
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            return set()
+
+    def _save_processed_otps(self):
+        """বর্তমান OTP ID গুলো JSON ফাইলে সেভ করে"""
+        data = {otp_id: datetime.now().isoformat() for otp_id in self.processed_otps}
+        with open(self.storage_file, "w") as f:
+            json.dump(data, f)
+        logger.debug(f"💾 {len(self.processed_otps)} টি OTP ID সেভ করা হয়েছে")
+
+    # ---------- ফরম্যাটিং হেলপার ----------
+    @staticmethod
+    def hide_phone_number(phone_number):
+        """ফোন নাম্বারের মাঝের ডিজিটগুলো লুকাও (যেমন: 01712****34)"""
+        if len(phone_number) >= 8:
+            return phone_number[:4] + "****" + phone_number[-4:]
+        elif len(phone_number) >= 4:
+            return phone_number[:2] + "***" + phone_number[-2:]
+        return "***" + phone_number[-1:] if phone_number else ""
+
+    @staticmethod
+    def extract_operator_name(operator):
+        """অপারেটর স্ট্রিং থেকে প্রথম শব্দটা এক্সট্র্যাক্ট করো"""
+        return operator.split()[0] if operator else operator
+
+    def extract_otp(self, message):
+        """মেসেজ থেকে OTP কোড বের করো"""
+        match = self.otp_regex.search(message)
+        return match.group(0) if match else None
+
+    def create_otp_id(self, timestamp, phone_number, message):
+        """ইউনিক OTP আইডি জেনারেট করো (টাইমস্ট্যাম্প + ফোন + OTP)"""
+        otp = self.extract_otp(message) or message[:20]
+        return f"{timestamp}_{phone_number}_{otp}"
+
+    # ---------- টেলিগ্রাম মেসেজ পাঠানো ----------
+    async def send_telegram_message(self, message, chat_id=None, reply_markup=None):
+        """টেলিগ্রাম গ্রুপে মেসেজ পাঠাও"""
+        chat_id = chat_id or self.group_chat_id
+        try:
+            bot = Bot(token=self.telegram_token)
+            await bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode="Markdown",
+                reply_markup=reply_markup,
+                disable_web_page_preview=True,
+            )
+            return True
+        except TelegramError as e:
+            logger.error(f"❌ টেলিগ্রাম এরর: {e}")
+            return False
+
+    async def send_startup_message(self):
+        """বট চালু হওয়ার বার্তা গ্রুপে পাঠাও (আপডেটেড বাটন)"""
+        startup_msg = f"""
+🚀 **OTP মনিটর বট চালু হয়েছে** 🚀
+➖➖➖➖➖➖➖➖➖➖➖
+
+✅ **স্ট্যাটাস:** `লাইভ ও মনিটরিং`
+⚡ **রেসপন্স:** `তাৎক্ষণিক`
+📡 **মোড:** `রিয়েল-টাইম`
+
+🎯 **ফিচার:**
+• শুধু প্রথম OTP ফরওয়ার্ড
+• লাইভ মনিটরিং
+• অটো ডিটেকশন
+
+⏰ **চালুর সময়:** `{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}`
+
+🔔 **নোট:** একই OTP একবারই পাঠানো হবে!
+
+➖➖➖➖➖➖➖➖➖➖➖
+🤖 **OTP মনিটর বট**
+        """
+        # ✅ আপডেটেড বাটন (মেইন চ্যানেল + নাম্বার বট + ডেভেলপার)
+        keyboard = [
+            [InlineKeyboardButton("📢 মেইন চ্যানেল", url="https://t.me/updaterange")],
+            [InlineKeyboardButton("🤖 নাম্বার বট", url="https://t.me/Updateotpnew_bot")],
+            [InlineKeyboardButton("👨‍💻 ডেভেলপার", url="https://t.me/rana1132")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await self.send_telegram_message(startup_msg, reply_markup=reply_markup)
+        logger.info("✅ স্টার্টআপ মেসেজ গ্রুপে পাঠানো হয়েছে")
+
+    @staticmethod
+    def create_response_buttons():
+        """OTP মেসেজের সাথে ইনলাইন বাটন তৈরি করো (আপডেটেড)"""
+        # ✅ আপডেটেড বাটন (মেইন চ্যানেল + নাম্বার বট + ডেভেলপার)
+        keyboard = [
+            [InlineKeyboardButton("📢 মেইন চ্যানেল", url="https://t.me/updaterange")],
+            [InlineKeyboardButton("🤖 নাম্বার বট", url="https://t.me/Updateotpnew_bot")],
+            [InlineKeyboardButton("👨‍💻 ডেভেলপার", url="https://t.me/rana1132")],
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    def format_message(self, sms_data):
+        """SMS ডেটা থেকে টেলিগ্রাম মেসেজ ফরম্যাট করো"""
+        timestamp = sms_data[0]
+        operator = sms_data[1]
+        phone_number = sms_data[2]
+        platform = sms_data[3]
+        message = sms_data[5]
+
+        hidden_phone = self.hide_phone_number(phone_number)
+        operator_name = self.extract_operator_name(operator)
+        otp_code = self.extract_otp(message) or "প্রসেসিং..."
+
+        return f"""
+🔥 **প্রথম OTP পাওয়া গেছে!** 🔥
+➖➖➖➖➖➖➖➖➖➖➖
+
+📅 **সময়:** `{timestamp}`
+📱 **নাম্বার:** `{hidden_phone}`
+🏢 **অপারেটর:** `{operator_name}`
+📟 **প্ল্যাটফর্ম:** `{platform}`
+
+🟢 **OTP কোড:** `{otp_code}`
+
+📝 **মেসেজ:**
+`{message}`
+
+➖➖➖➖➖➖➖➖➖➖➖
+🤖 **OTP মনিটর বট**
 """
 
-# =================== টেলিগ্রাম পাঠানো (আপডেটেড লিংক) ===================
-async def send_to_telegram(text):
-    """টেলিগ্রাম গ্রুপে মেসেজ পাঠায়"""
-    try:
-        bot = Bot(token=TELEGRAM_BOT_TOKEN)
-        keyboard = [
-            [InlineKeyboardButton("📢 মেইন চ্যানেল", url=MAIN_CHANNEL)],
-            [InlineKeyboardButton("🤖 নাম্বার বট", url=NUMBER_BOT)],
-            [InlineKeyboardButton("👨‍💻 ডেভেলপার", url=DEVELOPER)],
-        ]
-        await bot.send_message(
-            chat_id=GROUP_CHAT_ID,
-            text=text,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            disable_web_page_preview=True
-        )
-        return True
-    except TelegramError as e:
-        logger.error(f"টেলিগ্রাম এরর: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"পাঠাতে ব্যর্থ: {e}")
-        return False
+    # ---------- API থেকে SMS ডেটা ফেচ (aiohttp/requests অটো সিলেক্ট) ----------
+    async def fetch_sms_data(self):
+        """টার্গেট API থেকে SMS ডেটা নিয়ে আসো"""
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Language": "en-AZ,it-SI;q=0.9,es-BO;q=0.8,ar-IL;q=0.7",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "http://15.235.182.3/konekta/agent/SMSCDRStats",
+            "Cookie": f"PHPSESSID={self.session_cookie}",
+            "Connection": "keep-alive",
+        }
+        current_date = time.strftime("%Y-%m-%d")
+        params = {
+            "fdate1": f"{current_date} 00:00:00",
+            "fdate2": f"{current_date} 23:59:59",
+            "frange": "",
+            "fclient": "",
+            "fnum": "",
+            "fcli": "",
+            "fgdate": "",
+            "fgmonth": "",
+            "fgrange": "",
+            "fgclient": "",
+            "fgnumber": "",
+            "fgcli": "",
+            "fg": "0",
+            "sEcho": "1",
+            "iColumns": "9",
+            "sColumns": ",,,,,,,,",
+            "iDisplayStart": "0",
+            "iDisplayLength": "25",
+            "mDataProp_0": "0",
+            "sSearch_0": "",
+            "bRegex_0": "false",
+            "bSearchable_0": "true",
+            "bSortable_0": "true",
+            "mDataProp_1": "1",
+            "sSearch_1": "",
+            "bRegex_1": "false",
+            "bSearchable_1": "true",
+            "bSortable_1": "true",
+            "mDataProp_2": "2",
+            "sSearch_2": "",
+            "bRegex_2": "false",
+            "bSearchable_2": "true",
+            "bSortable_2": "true",
+            "mDataProp_3": "3",
+            "sSearch_3": "",
+            "bRegex_3": "false",
+            "bSearchable_3": "true",
+            "bSortable_3": "true",
+            "mDataProp_4": "4",
+            "sSearch_4": "",
+            "bRegex_4": "false",
+            "bSearchable_4": "true",
+            "bSortable_4": "true",
+            "mDataProp_5": "5",
+            "sSearch_5": "",
+            "bRegex_5": "false",
+            "bSearchable_5": "true",
+            "bSortable_5": "true",
+            "mDataProp_6": "6",
+            "sSearch_6": "",
+            "bRegex_6": "false",
+            "bSearchable_6": "true",
+            "bSortable_6": "true",
+            "mDataProp_7": "7",
+            "sSearch_7": "",
+            "bRegex_7": "false",
+            "bSearchable_7": "true",
+            "bSortable_7": "true",
+            "mDataProp_8": "8",
+            "sSearch_8": "",
+            "bRegex_8": "false",
+            "bSearchable_8": "true",
+            "bSortable_8": "false",
+            "sSearch": "",
+            "bRegex": "false",
+            "iSortCol_0": "0",
+            "sSortDir_0": "desc",
+            "iSortingCols": "1",
+            "_": str(int(time.time() * 1000)),
+        }
 
-# =================== প্রসেসড OTP সংরক্ষণ ===================
-def load_processed_otps():
-    """২৪ ঘণ্টার মধ্যে পাঠানো OTP গুলো লোড করে"""
-    try:
-        with open(PROCESSED_FILE, 'r') as f:
-            data = json.load(f)
-        cutoff = datetime.now() - timedelta(hours=24)
-        valid = {otp_id for otp_id, ts in data.items() if datetime.fromisoformat(ts) > cutoff}
-        logger.info(f"📂 {len(valid)} টি পুরনো OTP লোড হয়েছে")
-        return valid
-    except (FileNotFoundError, json.JSONDecodeError):
-        return set()
-
-def save_processed_otps(processed_set):
-    """পাঠানো OTP গুলো ফাইলে সেভ করে"""
-    data = {otp_id: datetime.now().isoformat() for otp_id in processed_set}
-    with open(PROCESSED_FILE, 'w') as f:
-        json.dump(data, f)
-    logger.debug(f"💾 {len(processed_set)} টি OTP সেভ করা হয়েছে")
-
-# =================== API থেকে ডাটা আনা (স্ট্যাটিক কুকি) ===================
-async def fetch_sms_data():
-    """শুধু PHPSESSID ব্যবহার করে API কল করে"""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 13; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0",
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Accept-Language": "en-US,en;q=0.9",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": "http://147.135.212.148/ints/agent/SMSCDRStats",
-        "Cookie": f"PHPSESSID={PHPSESSID}",
-        "Connection": "keep-alive",
-    }
-    
-    today = time.strftime("%Y-%m-%d")
-    params = {
-        "fdate1": f"{today} 00:00:00",
-        "fdate2": f"{today} 23:59:59",
-        "frange": "",
-        "fclient": "",
-        "fnum": "",
-        "fcli": "",
-        "fgdate": "",
-        "fgmonth": "",
-        "fgrange": "",
-        "fgclient": "",
-        "fgnumber": "",
-        "fgcli": "",
-        "fg": "0",
-        "sesskey": SESSKEY,
-        "sEcho": "1",
-        "iColumns": "9",
-        "sColumns": ",,,,,,,,",
-        "iDisplayStart": "0",
-        "iDisplayLength": "25",
-        "sSearch": "",
-        "bRegex": "false",
-        "iSortCol_0": "0",
-        "sSortDir_0": "desc",
-        "iSortingCols": "1",
-        "_": str(int(time.time() * 1000)),
-    }
-    # কলাম সেটিংস
-    for i in range(9):
-        params[f"mDataProp_{i}"] = str(i)
-        params[f"sSearch_{i}"] = ""
-        params[f"bRegex_{i}"] = "false"
-        params[f"bSearchable_{i}"] = "true"
-        params[f"bSortable_{i}"] = "true" if i != 8 else "false"
-    
-    try:
         if HAS_AIOHTTP:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(TARGET_URL, headers=headers, params=params, timeout=15, ssl=False) as resp:
-                    text = await resp.text()
-                    logger.info(f"📡 HTTP {resp.status}, রেসপন্স সাইজ: {len(text)} বাইট")
-                    if resp.status == 200 and text.strip():
-                        return json.loads(text)
-                    else:
-                        logger.warning(f"খারাপ রেসপন্স: {resp.status} - {text[:200]}")
-                        return None
+            return await self._fetch_aiohttp(headers, params)
         else:
-            resp = requests.get(TARGET_URL, headers=headers, params=params, timeout=15, verify=False)
-            logger.info(f"📡 HTTP {resp.status_code}, রেসপন্স সাইজ: {len(resp.text)} বাইট")
-            if resp.status_code == 200 and resp.text.strip():
-                return resp.json()
-            else:
-                logger.warning(f"খারাপ রেসপন্স: {resp.status_code} - {resp.text[:200]}")
-                return None
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON পার্সিং এরর: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"ফেচ এরর: {e}")
-        return None
+            return await self._fetch_requests(headers, params)
 
-# =================== মূল মনিটর লুপ ===================
-async def monitor_loop():
-    logger.info("="*50)
-    logger.info("🚀 OTP মনিটর বট চালু হচ্ছে (স্ট্যাটিক কুকি মোড)")
-    logger.info(f"🔑 PHPSESSID: {PHPSESSID[:10]}...")
-    logger.info("="*50)
-    
-    processed = load_processed_otps()
-    total_sent = 0
-    
-    # স্টার্টআপ মেসেজ গ্রুপে পাঠাও
-    await send_to_telegram(f"""
-✅ **OTP মনিটর বট চালু হয়েছে**
-⏰ `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`
-🔑 কুকি: `{PHPSESSID[:10]}...`
-📡 মোড: স্ট্যাটিক (কোনো অটো রিফ্রেশ নেই)
-
-🎯 **প্রতিটি OTP শুধু একবার ফরওয়ার্ড হবে**
-➖➖➖➖➖➖➖➖
-""")
-    
-    consecutive_errors = 0
-    
-    while True:
+    async def _fetch_aiohttp(self, headers, params):
+        """aiohttp দিয়ে অ্যাসিঙ্ক ফেচ (দ্রুত)"""
         try:
-            data = await fetch_sms_data()
-            
-            if data and "aaData" in data:
-                consecutive_errors = 0
-                sms_list = data["aaData"]
-                # বৈধ SMS যাদের টাইমস্ট্যাম্প আছে
-                valid_sms = [s for s in sms_list if len(s) >= 6 and isinstance(s[0], str) and ":" in s[0]]
-                
-                if valid_sms:
-                    # নতুন থেকে পুরনো ক্রমে প্রসেস করতে reverse
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    self.target_url,
+                    headers=headers,
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                    ssl=False
+                ) as response:
+                    if response.status == 200:
+                        text = await response.text()
+                        if text.strip():
+                            return json.loads(text)
+                    return None
+        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as e:
+            logger.warning(f"⚠️ aiohttp ফেচ এরর: {e}")
+            return None
+
+    async def _fetch_requests(self, headers, params):
+        """requests দিয়ে সিঙ্ক ফেচ (থ্রেড পুলে চলে, ব্লক করে না)"""
+        def _sync_fetch():
+            try:
+                response = requests.get(
+                    self.target_url,
+                    headers=headers,
+                    params=params,
+                    timeout=10,
+                    verify=False
+                )
+                if response.status_code == 200 and response.text.strip():
+                    return response.json()
+            except (requests.RequestException, json.JSONDecodeError) as e:
+                logger.warning(f"⚠️ requests ফেচ এরর: {e}")
+            return None
+
+        return await asyncio.to_thread(_sync_fetch)
+
+    # ---------- মূল মনিটর লুপ ----------
+    async def monitor_loop(self):
+        """প্রধান লুপ – প্রতি ০.৫ সেকেন্ডে API চেক করে, প্রথম নতুন OTP পাঠায়"""
+        logger.info("🚀 OTP মনিটরিং শুরু – শুধু প্রথম OTP (ইউনিক আইডি অনুযায়ী)")
+        await self.send_startup_message()
+
+        consecutive_failures = 0
+        retry_delay = 0.5
+
+        while self.is_monitoring:
+            try:
+                data = await self.fetch_sms_data()
+
+                if data and "aaData" in data:
+                    consecutive_failures = 0
+                    retry_delay = 0.5
+
+                    sms_list = data["aaData"]
+                    valid_sms = [
+                        sms for sms in sms_list
+                        if len(sms) >= 8 and isinstance(sms[0], str) and ":" in sms[0]
+                    ]
+
+                    # API নতুন আগে দেয়, আমরা উল্টে দিচ্ছি যাতে পুরনো আগে পাই
                     valid_sms.reverse()
-                    found_new = False
-                    
+
                     for sms in valid_sms:
                         timestamp = sms[0]
                         phone = sms[2]
                         message = sms[5]
-                        otp = extract_otp(message) or ""
-                        otp_id = f"{timestamp}_{phone}_{otp}"
-                        
-                        if otp_id not in processed:
-                            logger.info(f"🚨 নতুন OTP সনাক্ত! ফোন: {phone}")
-                            formatted = format_telegram_message(sms)
-                            success = await send_to_telegram(formatted)
-                            
-                            if success:
-                                processed.add(otp_id)
-                                total_sent += 1
-                                save_processed_otps(processed)
-                                logger.info(f"✅ OTP ফরওয়ার্ড করা হয়েছে (মোট: {total_sent})")
-                                found_new = True
-                                break  # শুধু প্রথম OTP পাঠাবে
-                    
-                    if not found_new:
-                        logger.debug("ℹ️ কোনো নতুন OTP নেই")
-                else:
-                    logger.debug("📭 কোনো বৈধ SMS নেই")
-            else:
-                consecutive_errors += 1
-                logger.warning(f"⚠️ API থেকে ভুল ডাটা (ক্রমিক ব্যর্থতা: {consecutive_errors})")
-                if consecutive_errors > 10:
-                    logger.error("অনেক বার ব্যর্থ – কুকি কি মেয়াদোত্তীর্ণ?")
-                    await send_to_telegram("⚠️ *সতর্কতা:* API ক্রমাগত ভুল ডাটা দিচ্ছে। কুকি চেক করুন।")
-                    consecutive_errors = 0
-            
-            # ১ সেকেন্ড অপেক্ষা (চেক ইন্টারভাল)
-            await asyncio.sleep(1)
-            
-        except asyncio.CancelledError:
-            logger.info("🛑 বন্ধ করার নির্দেশ পাওয়া গেছে")
-            break
-        except Exception as e:
-            logger.exception(f"❌ লুপে অপ্রত্যাশিত ত্রুটি: {e}")
-            await asyncio.sleep(5)
+                        otp_id = self.create_otp_id(timestamp, phone, message)
 
-# =================== মেইন ===================
+                        if otp_id not in self.processed_otps:
+                            logger.info(f"🚨 নতুন OTP ডিটেক্ট: {timestamp} - {phone}")
+
+                            formatted_msg = self.format_message(sms)
+                            reply_markup = self.create_response_buttons()
+                            success = await self.send_telegram_message(
+                                formatted_msg, reply_markup=reply_markup
+                            )
+
+                            if success:
+                                self.processed_otps.add(otp_id)
+                                self.total_otps_sent += 1
+                                self.last_otp_time = datetime.now().strftime("%H:%M:%S")
+                                logger.info(f"✅ OTP পাঠানো হয়েছে (#{self.total_otps_sent})")
+                                self._save_processed_otps()
+                            else:
+                                logger.error(f"❌ OTP পাঠানো ব্যর্থ: {otp_id}")
+
+                            # প্রথম নতুন OTP পাঠানোর পর লুপ থেকে বের হয়ে পরবর্তী চক্রের অপেক্ষা
+                            break
+                    else:
+                        logger.debug("ℹ️ এই ব্যাচে কোনো নতুন OTP নেই")
+                else:
+                    consecutive_failures += 1
+                    retry_delay = min(retry_delay * 1.5, 5.0)
+                    logger.warning(
+                        f"⚠️ API এরর বা খালি রেসপন্স। "
+                        f"{retry_delay:.1f} সেকেন্ড পর আবার চেষ্টা (ফেইল: {consecutive_failures})"
+                    )
+
+                # পরবর্তী চেকের জন্য অপেক্ষা
+                await asyncio.sleep(retry_delay if consecutive_failures > 0 else 0.5)
+
+            except asyncio.CancelledError:
+                logger.info("🛑 মনিটর লুপ বন্ধ করা হয়েছে")
+                break
+            except Exception as e:
+                logger.exception(f"❌ অপ্রত্যাশিত এরর: {e}")
+                await asyncio.sleep(1)
+
+
 async def main():
+    """প্রোগ্রাম এন্ট্রি পয়েন্ট"""
+    print("=" * 50)
+    print("🤖 OTP মনিটর বট – শুধু প্রথম OTP")
+    print("=" * 50)
+    print(f"⚡ মোড: প্রথম OTP (ক্রোনোলজিক্যাল)")
+    print(f"⏰ চেক ইন্টারভাল: ডায়নামিক (বেস ০.৫ সেকেন্ড)")
+    print(f"📱 গ্রুপ আইডি: {GROUP_CHAT_ID}")
+    print(f"🌐 টার্গেট URL: {TARGET_URL}")
+    if not HAS_AIOHTTP:
+        print("⚠️  aiohttp ইনস্টল নেই – requests ব্যবহার হবে (ধীর). 'pip install aiohttp' দিন দ্রুত অপারেশনের জন্য")
+    print("🚀 বট চালু হচ্ছে...")
+    print("=" * 50)
+
+    bot = OTPMonitorBot(
+        telegram_token=TELEGRAM_BOT_TOKEN,
+        group_chat_id=GROUP_CHAT_ID,
+        session_cookie=SESSION_COOKIE,
+        target_url=TARGET_URL,
+    )
+
     try:
-        await monitor_loop()
+        await bot.monitor_loop()
     except KeyboardInterrupt:
-        logger.info("👋 ব্যবহারকারী বন্ধ করেছেন। আল্লাহ হাফেজ!")
+        print("\n🛑 ব্যবহারকারী বট বন্ধ করেছেন!")
+        bot.is_monitoring = False
+        print(f"📊 সর্বমোট OTP পাঠানো: {bot.total_otps_sent}")
+        print("👋 আল্লাহ হাফেজ!")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
